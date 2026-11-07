@@ -1,6 +1,6 @@
 // Bottom sheet shown when a building is tapped: name, capacity, walk time, hours, bookmark and share buttons.
 // Peeks up from the bottom of the map; swipe up (or tap the handle) to see popular times.
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import Icon from './Icon.jsx';
 import PopularTimesChart from './PopularTimesChart.jsx';
 import OccupancyLegend from './OccupancyLegend.jsx';
@@ -10,10 +10,14 @@ import { fmtMiles, googleWalkingUrl, walk } from '../utils/geo.js';
 import { hoursStatus, liveOccupancy } from '../utils/occupancy.js';
 
 const SWIPE_PX = 30;
+const PEEK_PX = 128;
+const CLOSE_PX = 40;
 
 function BuildingSheet({ place, expanded, onExpandedChange, onClose }) {
   const { now, examWeek, location, bookmarks, toast } = useApp();
-  const dragStart = useRef(null);
+  const sheetRef = useRef(null);
+  const drag = useRef(null);
+  const [dragHeight, setDragHeight] = useState(null);
 
   const status = hoursStatus(place, now);
   const occ = status.open ? liveOccupancy(place, now, { examWeek }) : 0;
@@ -22,15 +26,39 @@ function BuildingSheet({ place, expanded, onExpandedChange, onClose }) {
   const saved = bookmarks.isBookmarked(place.id);
 
   const onPointerDown = (e) => {
-    dragStart.current = e.clientY;
+    const sheet = sheetRef.current;
+    const screen = sheet.parentElement;
+    const topInset = parseFloat(getComputedStyle(sheet).getPropertyValue('--top-inset')) || 0;
+    drag.current = {
+      startY: e.clientY,
+      startHeight: sheet.offsetHeight,
+      maxHeight: screen.clientHeight - topInset - 56,
+    };
+    e.currentTarget.setPointerCapture(e.pointerId);
   };
+
+  const onPointerMove = (e) => {
+    if (!drag.current) return;
+    const { startY, startHeight, maxHeight } = drag.current;
+    const height = startHeight - (e.clientY - startY);
+    setDragHeight(Math.min(Math.max(height, 0), maxHeight));
+  };
+
   const onPointerUp = (e) => {
-    if (dragStart.current === null) return;
-    const dy = e.clientY - dragStart.current;
-    dragStart.current = null;
-    if (dy < -SWIPE_PX) onExpandedChange(true);
-    else if (dy > SWIPE_PX) (expanded ? onExpandedChange(false) : onClose());
-    else onExpandedChange(!expanded);
+    if (!drag.current) return;
+    const dy = e.clientY - drag.current.startY;
+    const height = dragHeight ?? drag.current.startHeight;
+    drag.current = null;
+    setDragHeight(null);
+    if (Math.abs(dy) < SWIPE_PX) onExpandedChange(!expanded);
+    else if (dy < 0) onExpandedChange(true);
+    else if (height < PEEK_PX - CLOSE_PX) onClose();
+    else onExpandedChange(false);
+  };
+
+  const onPointerCancel = () => {
+    drag.current = null;
+    setDragHeight(null);
   };
 
   const share = async () => {
@@ -53,13 +81,20 @@ function BuildingSheet({ place, expanded, onExpandedChange, onClose }) {
   };
 
   return (
-    <section className={expanded ? 'sheet expanded' : 'sheet'} aria-label={`${place.name} details`}>
+    <section
+      ref={sheetRef}
+      className={expanded ? 'sheet expanded' : 'sheet'}
+      style={dragHeight === null ? undefined : { maxHeight: dragHeight, transition: 'none' }}
+      aria-label={`${place.name} details`}
+    >
       <button
         className="sheet-handle"
         aria-label={expanded ? 'Collapse details' : 'Expand details'}
         aria-expanded={expanded}
         onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
+        onPointerCancel={onPointerCancel}
         onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && onExpandedChange(!expanded)}
       >
         <span className="grabber" />
