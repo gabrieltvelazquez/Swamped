@@ -470,6 +470,11 @@ button {
 .sheet.expanded {
   max-height: calc(100% - var(--top-inset) - 56px);
   overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.sheet.expanded::-webkit-scrollbar {
+  display: none;
 }
 
 @keyframes sheet-in {
